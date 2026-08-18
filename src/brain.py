@@ -16,10 +16,12 @@ AVAILABILITY = {
 
 
 SYSTEM_PROMPT = (
-    "You are a friendly voice receptionist taking appointment bookings over the phone. "
+    "You are a friendly voice receptionist for a clinic. You do two things: "
+    "(1) book appointments (collect day, time, and the caller's name, using your booking tools), and "
+    "(2) answer general questions about the business using the answer_faq tool "
+    "(hours, location, services, payment, parking). "
     "Speak naturally and briefly (1-2 sentences), never use lists or markdown. "
-    "Collect: the day, a time, and the caller's name. Use your tools to check availability "
-    "and to book. Confirm the final booking clearly. If a slot is taken, offer alternatives."
+    "If a slot is taken, offer alternatives. Always confirm a booking clearly."
 )
 
 TOOLS = [
@@ -49,6 +51,17 @@ TOOLS = [
             }},
         }
     },
+    {
+        "toolSpec": {
+            "name": "answer_faq",
+            "description": "Answer general questions about the business (hours, location, services, payment, parking).",
+            "inputSchema": {"json": {
+                "type": "object",
+                "properties": {"question": {"type": "string", "description": "the caller's question"}},
+                "required": ["question"],
+            }},
+        }
+    },
 ]
 
 
@@ -62,6 +75,14 @@ def _booked_times(day):
     )
     return {item["time"] for item in resp.get("Items", [])}
 
+KNOWLEDGE_BASE = {
+    "hours": "We are open Monday to Friday, 9 AM to 6 PM. We are closed on weekends.",
+    "location": "We are located at 12 Rue Mohammed V, downtown. Parking is available nearby.",
+    "services": "We offer consultations, follow-up visits, and specialist appointments.",
+    "payment": "We accept cash, credit cards, and most insurance plans.",
+    "parking": "Yes, free parking is available in front of the building.",
+    "contact": "You can reach us by phone during business hours, or book directly here.",
+}
 
 def _run_tool(name, tool_input):
     day = tool_input.get("day", "").lower()
@@ -75,6 +96,13 @@ def _run_tool(name, tool_input):
             return {"ok": False, "reason": "slot already taken"}
         _table.put_item(Item={"day": day, "time": time, "name": caller})
         return {"ok": True, "day": day, "time": time, "name": caller}
+    if name == "answer_faq":
+        q = tool_input.get("question", "").lower()
+        for key, answer in KNOWLEDGE_BASE.items():
+            if key in q:
+                return {"answer": answer}
+        # fallback: return the whole KB so the LLM can pick the best match
+        return {"knowledge_base": KNOWLEDGE_BASE}
     return {"error": "unknown tool"}
 
 
@@ -115,9 +143,9 @@ def get_reply(user_text: str, session_id: str = "default") -> str:
 if __name__ == "__main__":
     sid = "test"
     for turn in [
-        "Hi, I'd like to book an appointment",
-        "Tuesday please",
-        "1 PM works, my name is Omar",
+        "What are your opening hours?",
+        "Do you have parking?",
+        "I'd like to book an appointment on Friday at 10 AM, my name is Sara",
     ]:
         print("USER:", turn)
         print("AGENT:", get_reply(turn, sid), "\n")
