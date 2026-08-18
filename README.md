@@ -1,40 +1,49 @@
-﻿# AWS Voice Agent — Appointment Booking (two approaches)
+﻿# AWS Voice Agent — Conversational Appointment & FAQ Assistant
 
-A voice-driven appointment-booking assistant on AWS, built two ways:
+An end-to-end conversational AI agent on AWS, built two ways: a custom voice pipeline and a real telephony voicebot. The agent books appointments, answers business questions from a knowledge base, and runs behind AI safeguards with performance monitoring.
 
-1. **Custom voice pipeline** (web) — Amazon Transcribe (STT) -> Claude on Bedrock (reasoning + tools) -> Amazon Polly (TTS), served by FastAPI.
+## Two approaches
+
+1. **Custom voice pipeline** (web) — Amazon Transcribe (STT) -> Claude on Bedrock (agent + tools) -> Amazon Polly (TTS), served by FastAPI.
 2. **Telephony voicebot** (phone) — Amazon Connect -> Amazon Lex -> Lambda -> DynamoDB, callable on a real phone number.
 
-Both share the same booking logic and the same DynamoDB store.
+Both share the same booking logic and DynamoDB store.
 
-## Why two approaches
+## What the agent does
 
-The custom pipeline shows low-level control of the speech stack (streaming STT, LLM tool-calling, TTS). The Connect path shows the production-standard way to put a voicebot on a real phone line. Together they demonstrate both depth and the pragmatic AWS-native choice.
+- **Books appointments**: multi-turn dialogue collecting day, time, and name; checks live availability and persists to DynamoDB (taken slots rejected).
+- **Answers questions (Knowledge Base)**: an `answer_faq` tool lets the agent respond to hours, location, services, payment, and parking questions, not just bookings.
+- **Runs safely (AI governance)**: Amazon Bedrock Guardrails block PII (card numbers, passwords), prompt attacks, and toxic content on every turn.
+- **Is observable**: each turn logs structured JSON metrics (latency, tool calls, token usage) for performance monitoring and optimization.
 
 ## Architecture
 
 ```
 WEB (custom pipeline)
-  Browser mic -> FastAPI -> Transcribe (STT) -> Claude/Bedrock (agent + tools) -> Polly (TTS) -> Browser
+  Browser mic -> FastAPI -> Transcribe (STT) -> Claude/Bedrock (agent + tools + Guardrails) -> Polly (TTS)
 
 PHONE (Amazon Connect)
   Caller -> Connect flow -> Lex (AppointmentBot) -> Lambda -> DynamoDB -> spoken confirmation
 ```
 
-Shared store: DynamoDB table `voice-agent-bookings` (day + time as keys, caller name as attribute).
+Agent tools: `check_availability`, `book_appointment`, `answer_faq`.
+Shared store: DynamoDB `voice-agent-bookings`.
+Safeguards: Bedrock Guardrail (PII block + content filters).
 
 ## Intelligence & resilience
 
-- **Tool-using agent** (web): Claude decides when to call `check_availability` and `book_appointment` rather than following a fixed script.
-- **Per-session memory**: conversations are indexed by `session_id`, so concurrent callers never mix (verified with a two-session test).
-- **Durable state**: bookings persist in DynamoDB; a taken slot is rejected on the next request.
-- **Graceful handling**: unknown days, taken slots, and misheard input are answered with helpful re-prompts instead of failing.
+- **Tool-using agent**: Claude decides when to book, check availability, or answer a FAQ.
+- **Per-session memory**: conversations indexed by `session_id`; concurrent callers never mix (verified).
+- **Durable state**: bookings persist in DynamoDB across restarts.
+- **Guardrails**: sensitive input is blocked before it reaches the model (verified: a card number is rejected in ~800 ms, no tokens spent).
+- **Monitoring**: per-turn latency / tool-calls / tokens emitted as JSON for CloudWatch.
 
 ## Stack
 
 - **Speech**: Amazon Transcribe (streaming STT), Amazon Polly (TTS)
 - **Reasoning**: Claude (Haiku) via Amazon Bedrock, tool-calling
-- **Telephony**: Amazon Connect (claimed DID number, published contact flow) + Amazon Lex V2
+- **Governance**: Amazon Bedrock Guardrails
+- **Telephony**: Amazon Connect + Amazon Lex V2
 - **Compute/State**: AWS Lambda (Python), Amazon DynamoDB
 - **App**: FastAPI, Python
 
@@ -42,9 +51,9 @@ Shared store: DynamoDB table `voice-agent-bookings` (day + time as keys, caller 
 
 ```
 src/
-  brain.py          Tool-using booking agent (Bedrock + tools + session memory)
+  brain.py          Tool-using agent (booking + FAQ + Guardrails + metrics)
   server.py         FastAPI: mic audio -> STT -> agent -> TTS
-  pipeline.py       CLI end-to-end test of the voice loop
+  pipeline.py       CLI end-to-end voice-loop test
   lex_booking.py    Lambda: Lex V2 fulfillment -> DynamoDB
   stt_test.py       Transcribe streaming test
   test_sessions.py  Concurrency / isolation test
@@ -62,15 +71,15 @@ uvicorn server:app --app-dir src --port 8000
 
 ## Run (telephony)
 
-Amazon Connect instance + Lex bot `AppointmentBot` + Lambda `voice-lex-booking` wired to a published contact flow attached to a claimed number. Calling the number books by voice, end to end.
+Amazon Connect instance + Lex bot `AppointmentBot` + Lambda `voice-lex-booking`, wired to a published contact flow on a claimed number. Calling the number books by voice, end to end.
 
 ## Cost
 
-Fully serverless / pay-per-use. Transcribe, Polly, Bedrock (Haiku), Lambda, DynamoDB and a Connect DID number cost cents for development and demos.
+Fully serverless / pay-per-use: Transcribe, Polly, Bedrock (Haiku), Guardrails, Lambda, DynamoDB, and a Connect DID number cost cents for development and demos.
 
 ## Roadmap
 
 - [ ] Continuous conversation (VAD) in the web client
 - [ ] Cancel / reschedule intents
-- [ ] Call recording + transcript storage for QA
+- [ ] Outbound webhook on booking (notify external systems)
 - [ ] Multi-language (Polly + Lex locales)
