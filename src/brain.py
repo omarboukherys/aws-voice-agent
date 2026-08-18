@@ -13,7 +13,7 @@ AVAILABILITY = {
     "thursday": ["11:00 AM", "2:00 PM", "4:00 PM"],
     "friday": ["10:00 AM", "1:00 PM"],
 }
-BOOKINGS = {}  # {day: {time: caller_name}}
+
 
 SYSTEM_PROMPT = (
     "You are a friendly voice receptionist taking appointment bookings over the phone. "
@@ -52,16 +52,28 @@ TOOLS = [
 ]
 
 
+_ddb = boto3.resource("dynamodb", region_name="us-east-1")
+_table = _ddb.Table("voice-agent-bookings")
+
+
+def _booked_times(day):
+    resp = _table.query(
+        KeyConditionExpression=boto3.dynamodb.conditions.Key("day").eq(day)
+    )
+    return {item["time"] for item in resp.get("Items", [])}
+
+
 def _run_tool(name, tool_input):
     day = tool_input.get("day", "").lower()
     if name == "check_availability":
-        free = [t for t in AVAILABILITY.get(day, []) if t not in BOOKINGS.get(day, {})]
+        taken = _booked_times(day)
+        free = [t for t in AVAILABILITY.get(day, []) if t not in taken]
         return {"day": day, "available": free} if free else {"day": day, "available": [], "note": "no slots"}
     if name == "book_appointment":
         time, caller = tool_input["time"], tool_input["name"]
-        if time in BOOKINGS.get(day, {}):
+        if time in _booked_times(day):
             return {"ok": False, "reason": "slot already taken"}
-        BOOKINGS.setdefault(day, {})[time] = caller
+        _table.put_item(Item={"day": day, "time": time, "name": caller})
         return {"ok": True, "day": day, "time": time, "name": caller}
     return {"error": "unknown tool"}
 

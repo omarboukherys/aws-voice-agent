@@ -1,74 +1,133 @@
-﻿<!DOCTYPE html>
+﻿<!doctype html>
 <html>
-<head>
-  <meta charset="utf-8">
-  <title>AWS Voice Agent</title>
-  <style>
-    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 20px; color: #1a1a1a; }
-    h1 { font-size: 1.5rem; }
-    button { font-size: 1.1rem; padding: 14px 28px; border: none; border-radius: 8px; cursor: pointer; background: #1F4E79; color: white; }
-    button.rec { background: #b32828; }
-    #log { margin-top: 24px; }
-    .msg { padding: 10px 14px; border-radius: 8px; margin: 8px 0; }
-    .user { background: #eef2f7; }
-    .agent { background: #e6f0e6; }
-    .label { font-size: .75rem; color: #666; text-transform: uppercase; }
-  </style>
-</head>
-<body>
-  <h1>AWS Voice Agent</h1>
-  <p>Press and hold to talk. Release to send.</p>
-  <button id="btn">Hold to talk</button>
-  <div id="log"></div>
+  <head>
+    <meta charset="utf-8" />
+    <title>AWS Voice Agent</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 640px;
+        margin: 40px auto;
+        padding: 0 20px;
+        color: #1a1a1a;
+      }
+      h1 {
+        font-size: 1.5rem;
+      }
+      button {
+        font-size: 1.1rem;
+        padding: 14px 28px;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        background: #1f4e79;
+        color: white;
+      }
+      button.rec {
+        background: #b32828;
+      }
+      #log {
+        margin-top: 24px;
+      }
+      .msg {
+        padding: 10px 14px;
+        border-radius: 8px;
+        margin: 8px 0;
+      }
+      .user {
+        background: #eef2f7;
+      }
+      .agent {
+        background: #e6f0e6;
+      }
+      .label {
+        font-size: 0.75rem;
+        color: #666;
+        text-transform: uppercase;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>AWS Voice Agent</h1>
+    <p>Press and hold to talk. Release to send.</p>
+    <button id="btn">Hold to talk</button>
+    <div id="log"></div>
 
-  <script>
-    const btn = document.getElementById("btn");
-    const log = document.getElementById("log");
-    let ctx, source, processor, chunks = [], stream;
+    <script>
+      const sessionId = "web-" + Math.random().toString(36).slice(2);
+      const btn = document.getElementById("btn");
+      const log = document.getElementById("log");
+      let ctx,
+        source,
+        processor,
+        chunks = [],
+        stream;
 
-    async function start() {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      ctx = new AudioContext({ sampleRate: 16000 });
-      source = ctx.createMediaStreamSource(stream);
-      processor = ctx.createScriptProcessor(4096, 1, 1);
-      chunks = [];
-      processor.onaudioprocess = e => {
-        const f = e.inputBuffer.getChannelData(0);
-        const pcm = new Int16Array(f.length);
-        for (let i = 0; i < f.length; i++) pcm[i] = Math.max(-1, Math.min(1, f[i])) * 32767;
-        chunks.push(pcm);
-      };
-      source.connect(processor);
-      processor.connect(ctx.destination);
-      btn.classList.add("rec"); btn.textContent = "Listening...";
-    }
+      async function start() {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        ctx = new AudioContext({ sampleRate: 16000 });
+        source = ctx.createMediaStreamSource(stream);
+        processor = ctx.createScriptProcessor(4096, 1, 1);
+        chunks = [];
+        processor.onaudioprocess = (e) => {
+          const f = e.inputBuffer.getChannelData(0);
+          const pcm = new Int16Array(f.length);
+          for (let i = 0; i < f.length; i++)
+            pcm[i] = Math.max(-1, Math.min(1, f[i])) * 32767;
+          chunks.push(pcm);
+        };
+        source.connect(processor);
+        processor.connect(ctx.destination);
+        btn.classList.add("rec");
+        btn.textContent = "Listening...";
+      }
 
-    async function stop() {
-      processor.disconnect(); source.disconnect();
-      stream.getTracks().forEach(t => t.stop());
-      btn.classList.remove("rec"); btn.textContent = "Thinking...";
-      const total = chunks.reduce((a, c) => a + c.length, 0);
-      const merged = new Int16Array(total);
-      let off = 0; for (const c of chunks) { merged.set(c, off); off += c.length; }
-      const res = await fetch("/talk", { method: "POST", body: merged.buffer });
-      const data = await res.json();
-      if (data.user) add("user", data.user);
-      add("agent", data.reply);
-      if (data.audio) new Audio("data:audio/mp3;base64," + data.audio).play();
-      btn.textContent = "Hold to talk";
-    }
+      async function stop() {
+        processor.disconnect();
+        source.disconnect();
+        stream.getTracks().forEach((t) => t.stop());
+        btn.classList.remove("rec");
+        btn.textContent = "Thinking...";
+        const total = chunks.reduce((a, c) => a + c.length, 0);
+        const merged = new Int16Array(total);
+        let off = 0;
+        for (const c of chunks) {
+          merged.set(c, off);
+          off += c.length;
+        }
+        const res = await fetch("/talk", {
+          method: "POST",
+          headers: { "X-Session-Id": sessionId },
+          body: merged.buffer,
+        });
+        const data = await res.json();
+        if (data.user) add("user", data.user);
+        add("agent", data.reply);
+        if (data.audio) new Audio("data:audio/mp3;base64," + data.audio).play();
+        btn.textContent = "Hold to talk";
+      }
 
-    function add(who, text) {
-      const d = document.createElement("div");
-      d.className = "msg " + who;
-      d.innerHTML = '<div class="label">' + (who === "user" ? "You" : "Agent") + '</div>' + text;
-      log.appendChild(d);
-    }
+      function add(who, text) {
+        const d = document.createElement("div");
+        d.className = "msg " + who;
+        d.innerHTML =
+          '<div class="label">' +
+          (who === "user" ? "You" : "Agent") +
+          "</div>" +
+          text;
+        log.appendChild(d);
+      }
 
-    btn.addEventListener("mousedown", start);
-    btn.addEventListener("mouseup", stop);
-    btn.addEventListener("touchstart", e => { e.preventDefault(); start(); });
-    btn.addEventListener("touchend", e => { e.preventDefault(); stop(); });
-  </script>
-</body>
+      btn.addEventListener("mousedown", start);
+      btn.addEventListener("mouseup", stop);
+      btn.addEventListener("touchstart", (e) => {
+        e.preventDefault();
+        start();
+      });
+      btn.addEventListener("touchend", (e) => {
+        e.preventDefault();
+        stop();
+      });
+    </script>
+  </body>
 </html>

@@ -31,6 +31,8 @@ async def transcribe_pcm(pcm: bytes) -> str:
     client = TranscribeStreamingClient(region="us-east-1")
     stream = await client.start_stream_transcription(
         language_code="en-US", media_sample_rate_hz=16000, media_encoding="pcm",
+        vocabulary_name=None, show_speaker_label=False,
+        enable_partial_results_stabilization=True, partial_results_stability="high",
     )
 
     async def send():
@@ -52,11 +54,12 @@ async def index():
 
 @app.post("/talk")
 async def talk(request: Request):
+    session_id = request.headers.get("X-Session-Id", "anonymous")
     pcm = await request.body()
     user_text = await transcribe_pcm(pcm)
     if not user_text:
         return JSONResponse({"user": "", "reply": "Sorry, I didn't catch that.", "audio": ""})
-    reply = get_reply(user_text, session_id="web")
+    reply = get_reply(user_text, session_id=session_id)
     audio = polly.synthesize_speech(Text=reply, OutputFormat="mp3", VoiceId="Joanna")
     audio_b64 = base64.b64encode(audio["AudioStream"].read()).decode()
     return JSONResponse({"user": user_text, "reply": reply, "audio": audio_b64})
