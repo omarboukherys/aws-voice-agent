@@ -1,0 +1,21 @@
+{
+  "name": "voice-agent-guardrail",
+  "description": "Safeguards for the voice appointment agent",
+  "blockedInputMessaging": "Sorry, I cannot help with that request.",
+  "blockedOutputsMessaging": "Sorry, I cannot provide that information.",
+  "contentPolicyConfig": {
+    "filtersConfig": [
+      {"type": "SEXUAL", "inputStrength": "HIGH", "outputStrength": "HIGH"},
+      {"type": "VIOLENCE", "inputStrength": "HIGH", "outputStrength": "HIGH"},
+      {"type": "HATE", "inputStrength": "HIGH", "outputStrength": "HIGH"},
+      {"type": "INSULTS", "inputStrength": "MEDIUM", "outputStrength": "MEDIUM"},
+      {"type": "PROMPT_ATTACK", "inputStrength": "HIGH", "outputStrength": "NONE"}
+    ]
+  },
+  "sensitiveInformationPolicyConfig": {
+    "piiEntitiesConfig": [
+      {"type": "CREDIT_DEBIT_CARD_NUMBER", "action": "BLOCK"},
+      {"type": "PASSWORD", "action": "BLOCK"}
+    ]
+  }
+}

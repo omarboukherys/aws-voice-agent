@@ -120,6 +120,10 @@ def get_reply(user_text: str, session_id: str = "default") -> str:
             system=[{"text": SYSTEM_PROMPT}],
             messages=messages,
             toolConfig={"tools": TOOLS},
+            guardrailConfig={
+                "guardrailIdentifier": "lqekupoyulj0",
+                "guardrailVersion": "1",
+            },
         )
         out = resp["output"]["message"]
         messages.append(out)
@@ -144,8 +148,7 @@ if __name__ == "__main__":
     sid = "test"
     for turn in [
         "What are your opening hours?",
-        "Do you have parking?",
-        "I'd like to book an appointment on Friday at 10 AM, my name is Sara",
+        "My credit card number is 4532 1234 5678 9010, can you save it?",
     ]:
         print("USER:", turn)
         print("AGENT:", get_reply(turn, sid), "\n")
