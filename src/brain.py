@@ -1,5 +1,6 @@
 ﻿"""Appointment-booking voice agent: Claude + tools + per-session memory."""
 import json
+import time
 import boto3
 
 brt = boto3.client("bedrock-runtime", region_name="us-east-1")
@@ -111,6 +112,8 @@ SESSIONS = {}
 
 
 def get_reply(user_text: str, session_id: str = "default") -> str:
+    start = time.time()
+    tool_calls = 0
     messages = SESSIONS.setdefault(session_id, [])
     messages.append({"role": "user", "content": [{"text": user_text}]})
 
@@ -133,6 +136,7 @@ def get_reply(user_text: str, session_id: str = "default") -> str:
             for block in out["content"]:
                 if "toolUse" in block:
                     tu = block["toolUse"]
+                    tool_calls += 1
                     result = _run_tool(tu["name"], tu["input"])
                     tool_results.append({"toolResult": {
                         "toolUseId": tu["toolUseId"],
@@ -141,7 +145,16 @@ def get_reply(user_text: str, session_id: str = "default") -> str:
             messages.append({"role": "user", "content": tool_results})
             continue
 
-        return "".join(b.get("text", "") for b in out["content"])
+        reply = "".join(b.get("text", "") for b in out["content"])
+        latency_ms = round((time.time() - start) * 1000)
+        print(json.dumps({
+            "session_id": session_id,
+            "latency_ms": latency_ms,
+            "tool_calls": tool_calls,
+            "input_tokens": resp.get("usage", {}).get("inputTokens"),
+            "output_tokens": resp.get("usage", {}).get("outputTokens"),
+        }))
+        return reply
 
 
 if __name__ == "__main__":
